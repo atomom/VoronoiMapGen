@@ -5,7 +5,7 @@ using UnityEngine;
 public partial class MapGraph
 {
     /// <summary>
-    /// Represents a half-edge
+    /// Represents a half-edge 图块的边 链表结构
     /// </summary>
     public class MapNodeHalfEdge
     {
@@ -40,7 +40,7 @@ public partial class MapGraph
 
         public override string ToString()
         {
-            return "HalfEdge: " + previous.destination.position  + " -> " + destination.position;
+            return "HalfEdge: " + previous.destination.position + " -> " + destination.position;
         }
 
         public MapNodeHalfEdge GetDownSlopeEdge()

@@ -1,10 +1,10 @@
-﻿using UnityEngine;
-using UnityEditor;
-using Delaunay;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using System;
+using Delaunay;
 using Delaunay.Geo;
+using UnityEditor;
+using UnityEngine;
 
 public partial class MapGraph
 {
@@ -38,7 +38,7 @@ public partial class MapGraph
     public List<MapNodeHalfEdge> edges;
 
     public MapGraph(Voronoi voronoi, HeightMap heightMap, float snapDistance)
-    {     
+    {
         CreateFromVoronoi(voronoi);
 
         if (snapDistance > 0) SnapPoints(snapDistance);
@@ -58,7 +58,7 @@ public partial class MapGraph
                 var neighbors = point.GetEdges();
                 foreach (var neighbor in neighbors)
                 {
-                    if (snapDistance > Vector3.Distance(point.position, neighbor.destination.position))
+                    if (snapDistance > Vector3.Distance(point.position, neighbor.GetEndPosition()))
                     {
                         SnapPoints(point, neighbor);
                     }
@@ -79,7 +79,7 @@ public partial class MapGraph
         edges.Remove(edge);
 
         // Delete the other point
-        points.Remove(new Vector3(edge.destination.position.x, 0, edge.destination.position.z));
+        points.Remove(new Vector3(edge.GetEndPosition().x, 0, edge.GetEndPosition().z));
 
         var otherEdges = edge.destination.GetEdges().ToList();
 
@@ -110,26 +110,35 @@ public partial class MapGraph
     private void CreateFromVoronoi(Voronoi voronoi)
     {
         points = new Dictionary<Vector3, MapPoint>();
+        //中心点为key 图块
         nodesByCenterPosition = new Dictionary<Vector3, MapNode>();
+        //顶点为key 边
         var edgesByStartPosition = new Dictionary<Vector3, List<MapNodeHalfEdge>>();
+        //边
         edges = new List<MapNodeHalfEdge>();
-
-
+        //多边形
         plotBounds = voronoi.plotBounds;
+
+        //下左区域
         var bottomLeftSite = voronoi.NearestSitePoint(voronoi.plotBounds.xMin, voronoi.plotBounds.yMin);
+        //下右区域
         var bottomRightSite = voronoi.NearestSitePoint(voronoi.plotBounds.xMax, voronoi.plotBounds.yMin);
+        //上左区域
         var topLeftSite = voronoi.NearestSitePoint(voronoi.plotBounds.xMin, voronoi.plotBounds.yMax);
+        //上右区域
         var topRightSite = voronoi.NearestSitePoint(voronoi.plotBounds.xMax, voronoi.plotBounds.yMax);
 
-        var topLeft = new Vector3(voronoi.plotBounds.xMin, 0, voronoi.plotBounds.yMax);
-        var topRight = new Vector3(voronoi.plotBounds.xMax, 0, voronoi.plotBounds.yMax);
         var bottomLeft = new Vector3(voronoi.plotBounds.xMin, 0, voronoi.plotBounds.yMin);
         var bottomRight = new Vector3(voronoi.plotBounds.xMax, 0, voronoi.plotBounds.yMin);
+        var topLeft = new Vector3(voronoi.plotBounds.xMin, 0, voronoi.plotBounds.yMax);
+        var topRight = new Vector3(voronoi.plotBounds.xMax, 0, voronoi.plotBounds.yMax);
 
+        //边域线段
         var siteEdges = new Dictionary<Vector2, List<LineSegment>>();
 
         var edgePointsRemoved = 0;
 
+        //循环多边形的边
         foreach (var edge in voronoi.Edges())
         {
             if (edge.visible)
@@ -138,6 +147,7 @@ public partial class MapGraph
                 var p2 = edge.clippedEnds[Delaunay.LR.Side.RIGHT];
                 var segment = new LineSegment(p1, p2);
 
+                //挨的太近 ，就删掉，后面需要补上
                 if (Vector2.Distance(p1.Value, p2.Value) < 0.001f)
                 {
                     edgePointsRemoved++;
@@ -146,30 +156,45 @@ public partial class MapGraph
 
                 if (edge.leftSite != null)
                 {
-                    if (!siteEdges.ContainsKey(edge.leftSite.Coord)) siteEdges.Add(edge.leftSite.Coord, new List<LineSegment>());
+                    if (!siteEdges.ContainsKey(edge.leftSite.Coord))
+                    {
+                        siteEdges.Add(edge.leftSite.Coord, new List<LineSegment>());
+                    }
                     siteEdges[edge.leftSite.Coord].Add(segment);
                 }
+
                 if (edge.rightSite != null)
                 {
-                    if (!siteEdges.ContainsKey(edge.rightSite.Coord)) siteEdges.Add(edge.rightSite.Coord, new List<LineSegment>());
+                    if (!siteEdges.ContainsKey(edge.rightSite.Coord))
+                    {
+                        siteEdges.Add(edge.rightSite.Coord, new List<LineSegment>());
+                    }
                     siteEdges[edge.rightSite.Coord].Add(segment);
                 }
             }
         }
         Debug.Assert(edgePointsRemoved == 0, string.Format("{0} edge points too close and have been removed", edgePointsRemoved));
 
+        //循环区域的离散点
         foreach (var site in voronoi.SiteCoords())
         {
+            //获取区块的边
             var boundries = GetBoundriesForSite(siteEdges, site);
+            //转换成3维
             var center = ToVector3(site);
-            var currentNode = new MapNode { centerPoint = center };
+            //图块 离散点为中心点
+            var currentNode = new MapNode() { centerPoint = center };
+            //中心点 图块
             nodesByCenterPosition.Add(center, currentNode);
 
+            //图块边
             MapNodeHalfEdge firstEdge = null;
             MapNodeHalfEdge previousEdge = null;
 
+            //将算法的边转行为图块的边
             for (var i = 0; i < boundries.Count; i++)
             {
+                //循环边
                 var edge = boundries[i];
 
                 var start = ToVector3(edge.p0.Value);
@@ -181,6 +206,8 @@ public partial class MapGraph
                 if (currentNode.startEdge == null) currentNode.startEdge = previousEdge;
 
                 // We need to figure out if the two edges meet, and if not then insert some more edges to close the polygon
+                // 封闭多边形 在边缘地带
+                //需要 插入边， 可能之前因为挨得近，就删了一些边
                 var insertEdges = false;
                 if (i < boundries.Count - 1)
                 {
@@ -211,38 +238,38 @@ public partial class MapGraph
                     if (startIsTop)
                     {
                         if (hasTopRight) previousEdge = AddEdge(edgesByStartPosition, previousEdge, start, topRight, currentNode);
-                        if (hasBottomRight) previousEdge = AddEdge(edgesByStartPosition, previousEdge, previousEdge.destination.position, bottomRight, currentNode);
-                        if (hasBottomLeft) previousEdge = AddEdge(edgesByStartPosition, previousEdge, previousEdge.destination.position, bottomLeft, currentNode);
-                        if (hasTopLeft) previousEdge = AddEdge(edgesByStartPosition, previousEdge, previousEdge.destination.position, topLeft, currentNode);
+                        if (hasBottomRight) previousEdge = AddEdge(edgesByStartPosition, previousEdge, previousEdge.GetEndPosition(), bottomRight, currentNode);
+                        if (hasBottomLeft) previousEdge = AddEdge(edgesByStartPosition, previousEdge, previousEdge.GetEndPosition(), bottomLeft, currentNode);
+                        if (hasTopLeft) previousEdge = AddEdge(edgesByStartPosition, previousEdge, previousEdge.GetEndPosition(), topLeft, currentNode);
 
                     }
                     else if (startIsRight)
                     {
                         if (hasBottomRight) previousEdge = AddEdge(edgesByStartPosition, previousEdge, start, bottomRight, currentNode);
-                        if (hasBottomLeft) previousEdge = AddEdge(edgesByStartPosition, previousEdge, previousEdge.destination.position, bottomLeft, currentNode);
-                        if (hasTopLeft) previousEdge = AddEdge(edgesByStartPosition, previousEdge, previousEdge.destination.position, topLeft, currentNode);
-                        if (hasTopRight) previousEdge = AddEdge(edgesByStartPosition, previousEdge, previousEdge.destination.position, topRight, currentNode);
+                        if (hasBottomLeft) previousEdge = AddEdge(edgesByStartPosition, previousEdge, previousEdge.GetEndPosition(), bottomLeft, currentNode);
+                        if (hasTopLeft) previousEdge = AddEdge(edgesByStartPosition, previousEdge, previousEdge.GetEndPosition(), topLeft, currentNode);
+                        if (hasTopRight) previousEdge = AddEdge(edgesByStartPosition, previousEdge, previousEdge.GetEndPosition(), topRight, currentNode);
                     }
                     else if (startIsBottom)
                     {
                         if (hasBottomLeft) previousEdge = AddEdge(edgesByStartPosition, previousEdge, start, bottomLeft, currentNode);
-                        if (hasTopLeft) previousEdge = AddEdge(edgesByStartPosition, previousEdge, previousEdge.destination.position, topLeft, currentNode);
-                        if (hasTopRight) previousEdge = AddEdge(edgesByStartPosition, previousEdge, previousEdge.destination.position, topRight, currentNode);
-                        if (hasBottomRight) previousEdge = AddEdge(edgesByStartPosition, previousEdge, previousEdge.destination.position, bottomRight, currentNode);
+                        if (hasTopLeft) previousEdge = AddEdge(edgesByStartPosition, previousEdge, previousEdge.GetEndPosition(), topLeft, currentNode);
+                        if (hasTopRight) previousEdge = AddEdge(edgesByStartPosition, previousEdge, previousEdge.GetEndPosition(), topRight, currentNode);
+                        if (hasBottomRight) previousEdge = AddEdge(edgesByStartPosition, previousEdge, previousEdge.GetEndPosition(), bottomRight, currentNode);
                     }
                     else if (startIsLeft)
                     {
                         if (hasTopLeft) previousEdge = AddEdge(edgesByStartPosition, previousEdge, start, topLeft, currentNode);
-                        if (hasTopRight) previousEdge = AddEdge(edgesByStartPosition, previousEdge, previousEdge.destination.position, topRight, currentNode);
-                        if (hasBottomRight) previousEdge = AddEdge(edgesByStartPosition, previousEdge, previousEdge.destination.position, bottomRight, currentNode);
-                        if (hasBottomLeft) previousEdge = AddEdge(edgesByStartPosition, previousEdge, previousEdge.destination.position, bottomLeft, currentNode);
+                        if (hasTopRight) previousEdge = AddEdge(edgesByStartPosition, previousEdge, previousEdge.GetEndPosition(), topRight, currentNode);
+                        if (hasBottomRight) previousEdge = AddEdge(edgesByStartPosition, previousEdge, previousEdge.GetEndPosition(), bottomRight, currentNode);
+                        if (hasBottomLeft) previousEdge = AddEdge(edgesByStartPosition, previousEdge, previousEdge.GetEndPosition(), bottomLeft, currentNode);
                     }
-
-                    previousEdge = AddEdge(edgesByStartPosition, previousEdge, previousEdge.destination.position, end, currentNode);
+                    //插入断掉的边 补充前面因为挨的近 丢弃的
+                    previousEdge = AddEdge(edgesByStartPosition, previousEdge, previousEdge.GetEndPosition(), end, currentNode);
                 }
             }
 
-            // Connect up the end of the loop
+            // Connect up the end of the loop 补上最后一个 刚开始为空 现在可以闭环
             previousEdge.next = firstEdge;
             firstEdge.previous = previousEdge;
             AddLeavingEdge(firstEdge);
@@ -307,6 +334,12 @@ public partial class MapGraph
         return boundries;
     }
 
+    /// <summary>
+    /// 优化边
+    /// </summary>
+    /// <param name="boundries"></param>
+    /// <param name="snapDistance"></param>
+    /// <returns></returns>
     private static List<LineSegment> SnapBoundries(List<LineSegment> boundries, float snapDistance)
     {
         for (int i = boundries.Count - 1; i >= 0; i--)
@@ -352,8 +385,9 @@ public partial class MapGraph
         {
             if (edge.opposite == null)
             {
-                var startEdgePosition = edge.previous.destination.position;
-                var endEdgePosition = edge.destination.position;
+
+                var startEdgePosition = edge.GetStartPosition();
+                var endEdgePosition = edge.GetEndPosition();
 
                 if (edgesByStartPosition.ContainsKey(endEdgePosition))
                 {
@@ -362,7 +396,7 @@ public partial class MapGraph
                     foreach (var item in list)
                     {
                         // We use .5f to snap the coordinates to each other, otherwise there are holes in the graph
-                        if (Math.Abs(item.destination.position.x - startEdgePosition.x) < 0.5f && Math.Abs(item.destination.position.z - startEdgePosition.z) < 0.5f)
+                        if (Math.Abs(item.GetEndPosition().x - startEdgePosition.x) < 0.5f && Math.Abs(item.GetEndPosition().z - startEdgePosition.z) < 0.5f)
                         {
                             opposite = item;
                         }
@@ -374,13 +408,14 @@ public partial class MapGraph
                     }
                     else
                     {
-                        // TODO: We need to check that this is at the world boundry, otherwise it's a bug
+                        // TODO: We need to check that this is at the world boundry, otherwise it's a bug 如果不封闭 就会形成洞 无法填色
                         var isAtEdge = endEdgePosition.x == 0 || endEdgePosition.x == plotBounds.width || endEdgePosition.z == 0 || endEdgePosition.z == plotBounds.height ||
                             startEdgePosition.x == 0 || startEdgePosition.x == plotBounds.width || startEdgePosition.z == 0 || startEdgePosition.z == plotBounds.height;
 
                         if (!isAtEdge)
                         {
                             edge.node.nodeType = MapNodeType.Error;
+
                             Debug.Assert(isAtEdge, "Edges without opposites must be at the boundry edge");
                         }
                     }
