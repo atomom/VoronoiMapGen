@@ -43,6 +43,7 @@ public partial class MapGraph
 
         if (snapDistance > 0) SnapPoints(snapDistance);
 
+        //更新高度
         UpdateHeights(heightMap);
     }
 

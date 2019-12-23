@@ -57,17 +57,22 @@ public partial class MapGeneratorPreview : MonoBehaviour
 
         time = DateTime.Now;
         heightMapSettings.noiseSettings.seed = seed;
+
+        //得到高度数据
         var heightMap = HeightMapGenerator.GenerateHeightMap(meshSize, meshSize, heightMapSettings, Vector2.zero);
         Debug.Log(string.Format("Heightmap Generated: {0:n0}ms", DateTime.Now.Subtract(time).TotalMilliseconds));
 
         time = DateTime.Now;
+        //构造图块
         var mapGraph = new MapGraph(voronoi, heightMap, snapDistance);
         Debug.Log(string.Format("Finished Generating Map Graph: {0:n0}ms with {1} nodes", DateTime.Now.Subtract(startTime).TotalMilliseconds, mapGraph.nodesByCenterPosition.Count));
 
         time = DateTime.Now;
+        //添加群落
         MapGenerator.GenerateMap(mapGraph);
         Debug.Log(string.Format("Map Generated: {0:n0}ms", DateTime.Now.Subtract(time).TotalMilliseconds));
 
+        //渲染
         if (previewType == PreviewType.HeightMap)
         {
             OnMeshDataReceived(MapMeshGenerator.GenerateMesh(mapGraph, heightMap, meshSize));

@@ -28,7 +28,7 @@ namespace Delaunay
         private static Stack<Edge> _pool = new Stack<Edge>();
 
         /**
-         * This is the only way to create a new Edge  二等分边
+         * This is the only way to create a new Edge  ???
          * @param site0
          * @param site1
          * @return
